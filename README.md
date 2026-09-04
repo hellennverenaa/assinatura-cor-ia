@@ -1,6 +1,31 @@
 # Assinatura de Cor IA 🎯
 
-Sistema de visão espectral e computação de borda desenvolvido para controle de qualidade e validação de tolerância de cor em insumos industriais (tecidos, laminados, malhas e EVA), mitigando falhas por metamerismo e textura.
+Sistema de espectrometria industrial e inteligência artificial aplicado ao controle de qualidade de materiais. O projeto substitui o julgamento visual subjetivo por assinaturas espectrais quantitativas, monitorando desvios de tonalidade, metamerismo e estabilidade de lotes em tempo real.
+
+---
+
+## 📊 Fluxo Operacional de Inspeção
+
+O fluxograma abaixo apresenta o processo operacional desde o posicionamento da amostra até a persistência dos dados e a geração de indicadores estatísticos:
+
+```mermaid
+flowchart TD
+    A([Início: Amostra posicionada na Cabine de Luz]) --> B[Sensor AS7341 realiza leitura dos 11 canais espectrais]
+    B --> C[ESP32 serializa grandezas em JSON e transmite via Wi-Fi]
+    C --> D[Backend Node.js recebe payload da leitura]
+    D --> E[Motor de IA: Cálculo de Delta E e Análise Espectral]
+
+    E --> F{Cor dentro da tolerância do lote?}
+    F -- Sim --> G[Classificação: APROVADO]
+    F -- Não --> H[Classificação: REPROVADO / Alerta de Desvio]
+
+    G --> I[(Persistência no PostgreSQL via TypeORM)]
+    H --> I
+
+    I --> J[Processamento de Estatísticas: Desvio Padrão e Estabilidade]
+    J --> K[Atualização do Dashboard Vue.js em Tempo Real]
+    K --> L([Fim: Operador visualiza laudo e histórico de conformidade])
+```
 
 ---
 
@@ -8,7 +33,7 @@ Sistema de visão espectral e computação de borda desenvolvido para controle d
 
 ### Nível 1: Diagrama de Contexto (System Context)
 
-Apresenta o sistema e suas fronteiras de comunicação com os usuários e sistemas fabris.
+Fronteiras operacionais do sistema com usuários e sistemas corporativos.
 
 ```mermaid
 graph TD
@@ -17,15 +42,15 @@ graph TD
     ERP[(ERP / Sistema Fabril)]
 
     Operador -->|Insere amostra e acompanha leituras| Sistema
-    Sistema -->|Dispara alertas de inconformidade| Operador
-    Sistema -->|Registra laudos e consumo de lotes| ERP
+    Sistema -->|Dispara alertas de inconformidade e tendências| Operador
+    Sistema -->|Registra laudos técnicos e validação de insumo| ERP
 ```
 
 ---
 
 ### Nível 2: Diagrama de Contêineres (Containers)
 
-Detalha os blocos de software/hardware executáveis e a comunicação entre eles.
+Estrutura dos serviços, banco de dados e aplicações do ecossistema.
 
 ```mermaid
 graph TD
@@ -34,26 +59,26 @@ graph TD
     subgraph CoreSystem [Sistema Assinatura de Cor IA]
         direction TB
         ESP[Hardware de Borda: ESP32 + AS7341<br/>Firmware C++ / PlatformIO]
-        SPA[Frontend SPA<br/>Vue.js 3 + Tailwind CSS]
+        SPA[Frontend Dashboard<br/>Vue.js 3 + Tailwind CSS]
         API[Backend API REST<br/>Node.js + TypeScript + TypeORM]
-        ML[Motor de Inferência IA<br/>Python / Scikit-Learn]
+        ML[Motor Analítico & IA<br/>Python / Scikit-Learn]
         DB[(Banco Relacional<br/>PostgreSQL)]
     end
 
-    User -->|Insere material na Light Box| ESP
-    User -->|Acompanha auditoria visual| SPA
-    ESP -->|Envia vetor de 11 canais via HTTP/JSON| API
-    SPA -->|Consulta métricas e lotes| API
-    API -->|Solicita cálculo de tolerância e Delta E| ML
-    ML -->|Retorna status de aprovação| API
-    API -->|Persiste dados de leitura e laudos| DB
+    User -->|Posiciona peça na cabine de inspeção| ESP
+    User -->|Acompanha análises e gráficos em tempo real| SPA
+    ESP -->|Transmite leitura de 11 canais via HTTP/JSON| API
+    SPA -->|Consulta métricas, histórico e relatórios| API
+    API -->|Envia leitura para inferência de tolerância| ML
+    ML -->|Retorna conformidade e desvio espectral| API
+    API -->|Persiste leituras brutas, laudos e métricas| DB
 ```
 
 ---
 
 ### Nível 3: Diagrama de Componentes (Backend API)
 
-Detalhamento interno do contêiner da API Node.js para entendimento dos módulos de serviço.
+Organização interna dos módulos do serviço de aplicação.
 
 ```mermaid
 graph TD
@@ -61,6 +86,7 @@ graph TD
         direction TB
         Controller[Inspection Controller]
         Service[Tolerance Evaluation Service]
+        StatsService[Statistics & Batch Analysis Service]
         MLBridge[Python ML Execution Bridge]
         Repository[TypeORM Repositories]
         Entities[TypeORM Entities / Data Models]
@@ -68,60 +94,47 @@ graph TD
 
     Controller -->|Encaminha payload JSON| Service
     Service -->|Dispara inferência espectral| MLBridge
-    Service -->|Salva resultados da inspeção| Repository
+    Service -->|Atualiza métricas do lote| StatsService
+    Service -->|Grava auditoria| Repository
+    StatsService -->|Recupera histórico do lote| Repository
     Repository -->|Mapeia dados relacionais| Entities
 ```
 
 ---
 
-## ⚙️ Fluxo Operacional de Inspeção
+## 📦 Lista de Materiais de Eletrônica (BOM)
 
-```text
-[Amostra na Cabine] ➔ [Leitura Espectral (11 Canais)] ➔ [Disparo HTTP/JSON] ➔ [Análise de Tolerância IA] ➔ [Persistência TypeORM] ➔ [Dashboard Vue.js]
-```
+A montagem aproveita a **cabine física e iluminação industrial já existentes**, demandando apenas os módulos de sensoriamento e controle:
 
-1. **Amostragem Estática:** O material é inserido na cabine fechada (_Light Box_) sob iluminação controlada (LEDs 6500K).
-2. **Varredura Espectral:** O sensor multicanal AS7341 decompõe a luz refletida em 8 comprimentos de onda do espectro visível (415nm a 680nm), além dos canais NIR e Clear.
-3. **Comunicação de Borda:** O ESP32 serializa as grandezas em formato JSON e dispara uma requisição `POST /api/v1/inspecoes` via rede local Wi-Fi.
-4. **Decisão Inteligente:** O backend submete a assinatura espectral ao modelo de tolerância treinado em Python ($\Delta E$ e limites de variabilidade), classificando a peça como **Aprovada** ou **Reprovada**.
-5. **Auditoria e Interface:** Os dados são persistidos no PostgreSQL através do TypeORM e atualizam o painel de monitoramento do operador em tempo real.
-
----
-
-## 📦 Lista de Materiais e Especificações (BOM)
-
-| Componente           | Especificação Técnica                                | Função no Projeto                                    |
-| :------------------- | :--------------------------------------------------- | :--------------------------------------------------- |
-| **Microcontrolador** | ESP32 DevKit NodeMCU (USB-C, 30/38 pinos)            | Aquisição I2C, empacotamento JSON e envio Wi-Fi      |
-| **Sensor Espectral** | AMS OSRAM AS7341 (Breakout STEMMA QT / Qwiic)        | Espectrometria óptica multicanal (11 bandas)         |
-| **Cabeamento**       | Cabo JST-SH 4 pinos para jumpers macho               | Conexão rápida sem necessidade de solda (I2C)        |
-| **Câmara Óptica**    | Cabine fechada (Light Box) revestida em branco fosco | Isolamento contra interferências de luz ambiente     |
-| **Iluminação**       | Fita LED neutra/fria (5000K a 6500K)                 | Fonte lumínica uniforme para reflexão                |
-| **Difusor**          | Placa de acrílico translúcido leitoso fino           | Dispersão ótica para atenuação de relevos e ranhuras |
+| Componente              | Especificação Técnica                         | Função no Projeto                                             |
+| :---------------------- | :-------------------------------------------- | :------------------------------------------------------------ |
+| **Microcontrolador**    | ESP32 DevKit NodeMCU (USB-C, 30/38 pinos)     | Aquisição I2C, conversão JSON e envio via rede Wi-Fi          |
+| **Sensor Espectral**    | AMS OSRAM AS7341 (Breakout STEMMA QT / Qwiic) | Espectrometria óptica de 11 canais (visível e NIR)            |
+| **Cabo de Conexão**     | Cabo JST-SH 4 pinos para jumpers macho        | Interligação direta entre sensor e microcontrolador sem solda |
+| **Fonte / Alimentação** | Fonte USB 5V 2A DC com cabo USB-C             | Alimentação elétrica dedicada para o microcontrolador         |
 
 ---
 
 ## 🔌 Pinagem e Interface Elétrica (I2C)
 
-A comunicação entre a placa de controle e o módulo opera em nível lógico nativo de 3.3V:
+A comunicação física opera em nível lógico nativo de 3.3V:
 
-| Pino AS7341 (STEMMA QT) | Pino ESP32 (GPIO) | Descrição do Sinal              | Nível Lógico |
-| :---------------------- | :---------------- | :------------------------------ | :----------- |
-| **VIN / VCC**           | **3V3**           | Alimentação do circuito         | 3.3V DC      |
-| **GND**                 | **GND**           | Referência comum de aterramento | 0V           |
-| **SDA**                 | **GPIO 21 (D21)** | Linha serial de dados I2C       | 3.3V         |
-| **SCL**                 | **GPIO 22 (D22)** | Linha serial de clock I2C       | 3.3V         |
+| Pino AS7341 (STEMMA QT) | Pino ESP32 (GPIO) | Descrição do Sinal        | Nível Lógico |
+| :---------------------- | :---------------- | :------------------------ | :----------- |
+| **VIN / VCC**           | **3V3**           | Tensão de alimentação     | 3.3V DC      |
+| **GND**                 | **GND**           | Referência de terra comum | 0V           |
+| **SDA**                 | **GPIO 21 (D21)** | Linha serial de dados I2C | 3.3V         |
+| **SCL**                 | **GPIO 22 (D22)** | Linha serial de clock I2C | 3.3V         |
 
 ---
 
 ## 💻 Stack Tecnológica
 
-- **Hardware de Borda:** ESP32 NodeMCU, Sensor AS7341 (STEMMA QT)
-- **Firmware:** C++, FreeRTOS, PlatformIO (VS Code)
-- **Backend:** Node.js, TypeScript, Express, TypeORM
-- **Serviço de Inferência IA:** Python (Scikit-Learn, NumPy, Pandas)
-- **Banco de Dados:** PostgreSQL
-- **Frontend:** Vue.js 3 (Composition API), Vite, Tailwind CSS
+- **Hardware e Firmware:** ESP32 NodeMCU, Sensor AS7341, C++ / FreeRTOS via PlatformIO.
+- **Backend:** Node.js, TypeScript, Express, TypeORM.
+- **Motor Analítico & IA:** Python (NumPy, Scikit-Learn para modelos de tolerância dinâmica e cálculo de $\Delta E$).
+- **Banco de Dados:** PostgreSQL (registro de leituras espectrais brutas, laudos e lotes).
+- **Frontend:** Vue.js 3 (Composition API), Tailwind CSS (painel operacional, gráficos de dispersão e controle estatístico de processo).
 
 ---
 
@@ -130,14 +143,14 @@ A comunicação entre a placa de controle e o módulo opera em nível lógico na
 ```text
 assinatura-cor-ia/
 ├── docs/                     # Diagramas C4, esquemáticos e manuais de calibração
-├── firmware/                 # Firmware do ESP32 via PlatformIO (C++)
-├── backend/                  # API REST Node.js com TypeScript
+├── firmware/                 # Código-fonte C++ do ESP32 (PlatformIO)
+├── backend/                  # API REST Node.js com TypeScript e TypeORM
 │   └── src/
-│       ├── controllers/      # Handlers das rotas HTTP
-│       ├── database/         # Data Source e Migrations do TypeORM
-│       ├── entities/         # Entidades ORM (Lotes, Leituras, Laudos)
-│       └── services/         # Regras de negócio e integração com Python
+│       ├── controllers/      # Controladores de rotas HTTP
+│       ├── database/         # Configurações de conexão e migrations
+│       ├── entities/         # Modelos de dados (Leitura, Inspecao, Lote)
+│       └── services/         # Regras de negócio, estatística e integração
 ├── ml-service/               # Scripts Python de inferência espectral e tolerância
-├── frontend/                 # Interface Web Vue.js 3 + Tailwind CSS
-└── README.md                 # Documentação unificada do repositório
+├── frontend/                 # Interface Web Vue.js 3 com painel em tempo real
+└── README.md                 # Documentação unificada do projeto
 ```
