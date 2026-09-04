@@ -1,30 +1,36 @@
 # Assinatura de Cor IA 🎯
 
-Sistema de espectrometria industrial e inteligência artificial aplicado ao controle de qualidade de materiais. O projeto substitui o julgamento visual subjetivo por assinaturas espectrais quantitativas, monitorando desvios de tonalidade, metamerismo e estabilidade de lotes em tempo real.
+Sistema híbrido de sensoriamento óptico, visão computacional e inteligência artificial aplicado ao controle de qualidade de materiais industriais (tecidos, laminados sintéticos, malhas e EVA). O projeto avalia duas abordagens de captura para mitigar interferências de textura e metamerismo: medição digital pontual e inspeção espacial por área.
 
 ---
 
 ## 📊 Fluxo Operacional de Inspeção
 
-O fluxograma abaixo apresenta o processo operacional desde o posicionamento da amostra até a persistência dos dados e a geração de indicadores estatísticos:
+Processo operacional contemplando as duas rotas de aquisição na cabine antes da análise de conformidade:
 
 ```mermaid
 flowchart TD
-    A([Início: Amostra posicionada na Cabine de Luz]) --> B[Sensor AS7341 realiza leitura dos 11 canais espectrais]
-    B --> C[ESP32 serializa grandezas em JSON e transmite via Wi-Fi]
-    C --> D[Backend Node.js recebe payload da leitura]
-    D --> E[Motor de IA: Cálculo de Delta E e Análise Espectral]
+    A(["Início: Amostra posicionada na Cabine"]) --> B{"Método de Captura"}
 
-    E --> F{Cor dentro da tolerância do lote?}
-    F -- Sim --> G[Classificação: APROVADO]
-    F -- Não --> H[Classificação: REPROVADO / Alerta de Desvio]
+    B -->|Abordagem A: IoT Pontual| C["Sensor TCS34725 lê canais RGBC via I2C"]
+    C --> D["ESP32 formata JSON e transmite via Wi-Fi"]
+    D --> G["Backend Node.js recebe leitura"]
 
-    G --> I[(Persistência no PostgreSQL via TypeORM)]
-    H --> I
+    B -->|Abordagem B: Visão Computacional| E["Câmera USB captura quadro da cabine"]
+    E --> F["Python/OpenCV extrai ROI e calcula média espectral"]
+    F --> G
 
-    I --> J[Processamento de Estatísticas: Desvio Padrão e Estabilidade]
-    J --> K[Atualização do Dashboard Vue.js em Tempo Real]
-    K --> L([Fim: Operador visualiza laudo e histórico de conformidade])
+    G --> H["Motor de IA: Conversão CIELAB, Delta E e Tolerância"]
+
+    H --> I{"Conforme especificação do lote?"}
+    I -->|Sim| J["Classificação: APROVADO"]
+    I -->|Não| K["Classificação: REPROVADO (Alerta de Variação)"]
+
+    J --> L[("Persistência no PostgreSQL via TypeORM")]
+    K --> L
+
+    L --> M["Atualização de Métricas e Dispersão no Vue.js 3"]
+    M --> N(["Fim: Operador visualiza laudo técnico"])
 ```
 
 ---
@@ -37,104 +43,112 @@ Fronteiras operacionais do sistema com usuários e sistemas corporativos.
 
 ```mermaid
 graph TD
-    Operador([Operador de Qualidade])
-    Sistema[Sistema Assinatura de Cor IA]
-    ERP[(ERP / Sistema Fabril)]
+    Operador(["Operador de Qualidade"])
+    Sistema["Sistema Assinatura de Cor IA"]
+    ERP[("ERP / Sistema Fabril")]
 
-    Operador -->|Insere amostra e acompanha leituras| Sistema
-    Sistema -->|Dispara alertas de inconformidade e tendências| Operador
-    Sistema -->|Registra laudos técnicos e validação de insumo| ERP
+    Operador -->|"Insere amostra e valida inspeção"| Sistema
+    Sistema -->|"Exibe conformidade e histórico em tempo real"| Operador
+    Sistema -->|"Registra laudos e rastreabilidade do lote"| ERP
 ```
 
 ---
 
 ### Nível 2: Diagrama de Contêineres (Containers)
 
-Estrutura dos serviços, banco de dados e aplicações do ecossistema.
+Topologia dos módulos de aquisição, processamento e visualização.
 
 ```mermaid
 graph TD
-    User([Operador de Qualidade])
+    User(["Operador de Qualidade"])
 
-    subgraph CoreSystem [Sistema Assinatura de Cor IA]
+    subgraph CoreSystem ["Sistema Assinatura de Cor IA"]
         direction TB
-        ESP[Hardware de Borda: ESP32 + AS7341<br/>Firmware C++ / PlatformIO]
-        SPA[Frontend Dashboard<br/>Vue.js 3 + Tailwind CSS]
-        API[Backend API REST<br/>Node.js + TypeScript + TypeORM]
-        ML[Motor Analítico & IA<br/>Python / Scikit-Learn]
-        DB[(Banco Relacional<br/>PostgreSQL)]
+        subgraph Ingestion ["Módulos de Aquisição"]
+            ESP["Hardware IoT: ESP32 + TCS34725<br/>Firmware C++ / PlatformIO"]
+            CAM["Módulo Óptico: Câmera USB<br/>Captura de Área / OpenCV"]
+        end
+
+        API["Backend API REST<br/>Node.js + TypeScript + TypeORM"]
+        ML["Motor de IA e Visão<br/>Python / OpenCV / Scikit-Learn"]
+        DB[("Banco Relacional<br/>PostgreSQL")]
+        SPA["Dashboard Web<br/>Vue.js 3 + Tailwind CSS"]
     end
 
-    User -->|Posiciona peça na cabine de inspeção| ESP
-    User -->|Acompanha análises e gráficos em tempo real| SPA
-    ESP -->|Transmite leitura de 11 canais via HTTP/JSON| API
-    SPA -->|Consulta métricas, histórico e relatórios| API
-    API -->|Envia leitura para inferência de tolerância| ML
-    ML -->|Retorna conformidade e desvio espectral| API
-    API -->|Persiste leituras brutas, laudos e métricas| DB
+    User -->|"Insere material na Light Box"| Ingestion
+    User -->|"Acompanha auditoria visual"| SPA
+    ESP -->|"Transmite leitura pontual via HTTP/JSON"| API
+    CAM -->|"Fornece stream de imagem da amostra"| ML
+    API -->|"Encaminha dados para processamento"| ML
+    ML -->|"Retorna Delta E e conformidade"| API
+    API -->|"Persiste leituras e laudos"| DB
+    SPA -->|"Consulta métricas e status do lote"| API
 ```
 
 ---
 
-### Nível 3: Diagrama de Componentes (Backend API)
+### Nível 3: Diagrama de Componentes (Backend & IA)
 
-Organização interna dos módulos do serviço de aplicação.
+Estrutura interna dos controladores, serviços analíticos e repositórios.
 
 ```mermaid
 graph TD
-    subgraph BackendContainer [Backend API - Node.js / TypeORM]
+    subgraph BackendContainer ["Serviços Backend e IA"]
         direction TB
-        Controller[Inspection Controller]
-        Service[Tolerance Evaluation Service]
-        StatsService[Statistics & Batch Analysis Service]
-        MLBridge[Python ML Execution Bridge]
-        Repository[TypeORM Repositories]
-        Entities[TypeORM Entities / Data Models]
+        Controller["Inspection Controller"]
+        Service["Tolerance Evaluation Service"]
+        VisionModule["OpenCV ROI Processor"]
+        MLBridge["Delta E & Machine Learning Engine"]
+        Repository["TypeORM Repositories"]
+        Entities["TypeORM Entities / Data Models"]
     end
 
-    Controller -->|Encaminha payload JSON| Service
-    Service -->|Dispara inferência espectral| MLBridge
-    Service -->|Atualiza métricas do lote| StatsService
-    Service -->|Grava auditoria| Repository
-    StatsService -->|Recupera histórico do lote| Repository
-    Repository -->|Mapeia dados relacionais| Entities
+    Controller -->|"Recebe dados brutos do sensor"| Service
+    Controller -->|"Dispara captura de imagem"| VisionModule
+    VisionModule -->|"Retorna média de pixels CIELAB"| Service
+    Service -->|"Avalia tolerância do lote"| MLBridge
+    Service -->|"Salva laudo e métricas"| Repository
+    Repository -->|"Mapeia dados relacionais"| Entities
 ```
 
 ---
 
-## 📦 Lista de Materiais de Eletrônica (BOM)
+## 📦 Lista de Materiais para Testes (BOM)
 
-A montagem aproveita a **cabine física e iluminação industrial já existentes**, demandando apenas os módulos de sensoriamento e controle:
+A montagem aproveita a **cabine física e iluminação industrial já existentes na fábrica**:
 
-| Componente              | Especificação Técnica                         | Função no Projeto                                             |
-| :---------------------- | :-------------------------------------------- | :------------------------------------------------------------ |
-| **Microcontrolador**    | ESP32 DevKit NodeMCU (USB-C, 30/38 pinos)     | Aquisição I2C, conversão JSON e envio via rede Wi-Fi          |
-| **Sensor Espectral**    | AMS OSRAM AS7341 (Breakout STEMMA QT / Qwiic) | Espectrometria óptica de 11 canais (visível e NIR)            |
-| **Cabo de Conexão**     | Cabo JST-SH 4 pinos para jumpers macho        | Interligação direta entre sensor e microcontrolador sem solda |
-| **Fonte / Alimentação** | Fonte USB 5V 2A DC com cabo USB-C             | Alimentação elétrica dedicada para o microcontrolador         |
+| Componente           | Especificação Técnica                         | Abordagem           | Função no Projeto                               |
+| :------------------- | :-------------------------------------------- | :------------------ | :---------------------------------------------- |
+| **Sensor de Cor**    | Módulo Digital TCS34725 (Filtro IR integrado) | Abordagem A (IoT)   | Medição digital direta RGBC via I2C             |
+| **Microcontrolador** | ESP32 DevKit V1 (NodeMCU, 30/38 pinos)        | Abordagem A (IoT)   | Coleta de dados do sensor e envio Wi-Fi         |
+| **Conexões**         | Jumpers Dupont Fêmea-Fêmea (20 cm)            | Abordagem A (IoT)   | Ligação direta sem solda entre placa e sensor   |
+| **Câmera USB**       | Câmera Full HD com ajuste manual de exposição | Abordagem B (Visão) | Captura de área ampla para atenuação de textura |
+| **Difusor Óptico**   | Acrílico translúcido leitoso (opcional)       | Abordagem A (IoT)   | Dispersão física de micro-sombras do tecido     |
+| **Estrutura / Luz**  | Cabine fechada com luz calibrada              | Ambas               | **R$ 0,00 (Recurso existente)**                 |
 
 ---
 
-## 🔌 Pinagem e Interface Elétrica (I2C)
+## 🔌 Pinagem e Interface Elétrica (TCS34725 ao ESP32)
 
-A comunicação física opera em nível lógico nativo de 3.3V:
+Ligação em nível lógico nativo de 3.3V sem necessidade de conversores de nível:
 
-| Pino AS7341 (STEMMA QT) | Pino ESP32 (GPIO) | Descrição do Sinal        | Nível Lógico |
-| :---------------------- | :---------------- | :------------------------ | :----------- |
-| **VIN / VCC**           | **3V3**           | Tensão de alimentação     | 3.3V DC      |
-| **GND**                 | **GND**           | Referência de terra comum | 0V           |
-| **SDA**                 | **GPIO 21 (D21)** | Linha serial de dados I2C | 3.3V         |
-| **SCL**                 | **GPIO 22 (D22)** | Linha serial de clock I2C | 3.3V         |
+| Pino TCS34725 | Pino ESP32 (GPIO)     | Descrição do Sinal                | Nível Lógico |
+| :------------ | :-------------------- | :-------------------------------- | :----------- |
+| **VIN / VCC** | **3V3**               | Alimentação positiva do módulo    | 3.3V DC      |
+| **GND**       | **GND**               | Referência de terra comum         | 0V           |
+| **SDA**       | **GPIO 21 (D21)**     | Linha serial de dados I2C         | 3.3V         |
+| **SCL**       | **GPIO 22 (D22)**     | Linha serial de clock I2C         | 3.3V         |
+| **LED**       | _Não conectado / GND_ | Controle do LED auxiliar da placa | —            |
 
 ---
 
 ## 💻 Stack Tecnológica
 
-- **Hardware e Firmware:** ESP32 NodeMCU, Sensor AS7341, C++ / FreeRTOS via PlatformIO.
+- **Firmware IoT:** C++, FreeRTOS, PlatformIO (VS Code).
+- **Visão Computacional & IA:** Python (OpenCV para processamento de matrizes de imagem; NumPy e Scikit-Learn para conversão CIELAB, $\Delta E$ e modelos de tolerância).
 - **Backend:** Node.js, TypeScript, Express, TypeORM.
-- **Motor Analítico & IA:** Python (NumPy, Scikit-Learn para modelos de tolerância dinâmica e cálculo de $\Delta E$).
-- **Banco de Dados:** PostgreSQL (registro de leituras espectrais brutas, laudos e lotes).
-- **Frontend:** Vue.js 3 (Composition API), Tailwind CSS (painel operacional, gráficos de dispersão e controle estatístico de processo).
+- **Banco de Dados:** PostgreSQL (histórico de inspeções, leituras pontuais, médias de área e laudos de qualidade).
+- **Frontend:** Vue.js 3 (Composition API), Vite, Tailwind CSS (painel operacional com controle estatístico e dispersão em tempo real).
 
 ---
 
@@ -142,15 +156,15 @@ A comunicação física opera em nível lógico nativo de 3.3V:
 
 ```text
 assinatura-cor-ia/
-├── docs/                     # Diagramas C4, esquemáticos e manuais de calibração
-├── firmware/                 # Código-fonte C++ do ESP32 (PlatformIO)
+├── docs/                     # Diagramas C4, esquemáticos e manuais
+├── firmware/                 # Firmware C++ para ESP32 + TCS34725 (PlatformIO)
+├── vision-service/           # Serviço Python (OpenCV ROI, CIELAB e modelos de IA)
 ├── backend/                  # API REST Node.js com TypeScript e TypeORM
 │   └── src/
-│       ├── controllers/      # Controladores de rotas HTTP
-│       ├── database/         # Configurações de conexão e migrations
-│       ├── entities/         # Modelos de dados (Leitura, Inspecao, Lote)
-│       └── services/         # Regras de negócio, estatística e integração
-├── ml-service/               # Scripts Python de inferência espectral e tolerância
-├── frontend/                 # Interface Web Vue.js 3 com painel em tempo real
-└── README.md                 # Documentação unificada do projeto
+│       ├── controllers/      # Handlers de rotas de inspeção
+│       ├── database/         # Data Source e Migrations do TypeORM
+│       ├── entities/         # Modelos (Inspecao, Lote, ParametroCor)
+│       └── services/         # Regras de negócio e avaliação estatística
+├── frontend/                 # Interface Web Vue.js 3 + Tailwind CSS
+└── README.md                 # Documentação técnica unificada
 ```
